@@ -17,11 +17,18 @@ function verifySlackSignature(req: NextRequest, body: string): boolean {
 
 export async function POST(req: NextRequest) {
   const body = await req.text()
-  const parsed = JSON.parse(body)
 
-  // URL verification challenge
-  if (parsed.type === 'url_verification') {
-    return NextResponse.json({ challenge: parsed.challenge })
+  // URL verification challenge（JSON形式）
+  if (body.startsWith('{')) {
+    const parsed = JSON.parse(body)
+    if (parsed.type === 'url_verification') {
+      return NextResponse.json({ challenge: parsed.challenge })
+    }
+  }
+
+  // Block Kit ボタン回答（payload=...形式）
+  if (!body.startsWith('payload=')) {
+    return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
   }
 
   if (!verifySlackSignature(req, body)) {
