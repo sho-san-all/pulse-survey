@@ -7,12 +7,90 @@ function verifySlackSignature(req: NextRequest, body: string): boolean {
   const timestamp = req.headers.get('x-slack-request-timestamp') || ''
   const signature = req.headers.get('x-slack-signature') || ''
   const signingSecret = process.env.SLACK_SIGNING_SECRET!
-
   const hmac = crypto.createHmac('sha256', signingSecret)
   hmac.update(`v0:${timestamp}:${body}`)
   const computed = `v0=${hmac.digest('hex')}`
-
   return computed === signature
+}
+
+function buildSurveyBlocks(mindScore: number | null, bodyScore: number | null, completed: boolean) {
+  const mindEmojis = ['😫', '😟', '😐', '🙂', '😄']
+  const bodyEmojis = ['😔', '😓', '😐', '💪', '🏃']
+
+  if (completed) {
+    return [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `✅ *回答ありがとうございます！*\nこころ：${mindScore ? `${mindEmojis[mindScore - 1]} ${mindScore}` : '未回答'} ／ からだ：${bodyScore ? `${bodyEmojis[bodyScore - 1]} ${bodyScore}` : '未回答'}\n\nお疲れさまでした 🙏 来週もよろしくお願いします！`,
+        },
+      },
+    ]
+  }
+
+  return [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: 'こんにちは！今週のチェックインです 👋\n1〜5でタップしてください（1=低い、5=高い）',
+      },
+    },
+    {
+      type: 'section',
+      text: { type: 'mrkdwn', text: '*① こころの調子*' },
+    },
+    {
+      type: 'actions',
+      block_id: 'mind_score',
+      elements: [1, 2, 3, 4, 5].map((n) => ({
+        type: 'button',
+        text: { type: 'plain_text', text: `${mindEmojis[n - 1]} ${n}` },
+        value: String(n),
+        action_id: `mind_${n}`,
+        ...(mindScore === n ? { style: 'primary' } : {}),
+      })),
+    },
+    {
+      type: 'section',
+      text: { type: 'mrkdwn', text: '*② からだの調子*' },
+    },
+    {
+      type: 'actions',
+      block_id: 'body_score',
+      elements: [1, 2, 3, 4, 5].map((n) => ({
+        type: 'button',
+        text: { type: 'plain_text', text: `${bodyEmojis[n - 1]} ${n}` },
+        value: String(n),
+        action_id: `body_${n}`,
+        ...(bodyScore === n ? { style: 'primary' } : {}),
+      })),
+    },
+    {
+      type: 'input' as const,
+      block_id: 'free_text',
+      optional: true,
+      label: { type: 'plain_text' as const, text: '③ 一言あれば（任意）' },
+      element: {
+        type: 'plain_text_input' as const,
+        action_id: 'free_text_input',
+        placeholder: { type: 'plain_text' as const, text: '気になることや、伝えたいことがあれば...' },
+        multiline: true,
+      },
+    },
+    {
+      type: 'actions' as const,
+      block_id: 'submit',
+      elements: [{
+        type: 'button' as const,
+        text: { type: 'plain_text' as const, text: '送信する' },
+        style: 'primary' as const,
+        action_id: 'submit_survey',
+        value: 'submit',
+      }],
+    },
+  ]
 }
 
 export async function POST(req: NextRequest) {
@@ -61,7 +139,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Survey not found' }, { status: 404 })
     }
 
-    // スコア保存（押すたびに上書き）
     if (action.action_id.startsWith('mind_')) {
       const score = parseInt(action.value)
       await supabaseAdmin.from('responses').upsert({
@@ -84,7 +161,6 @@ export async function POST(req: NextRequest) {
       }, { onConflict: 'survey_id,user_id' })
     }
 
-    // 最新の回答を取得
     const { data: currentResponse } = await supabaseAdmin
       .from('responses')
       .select('score_mind, score_body')
@@ -92,118 +168,22 @@ export async function POST(req: NextRequest) {
       .eq('user_id', userData.id)
       .single()
 
-    const mindScore = currentResponse?.score_mind
-    const bodyScore = currentResponse?.score_body
-    const mindEmojis = ['😫', '😟', '😐', '🙂', '😄']
-    const bodyEmojis = ['😔', '😓', '😐', '💪', '🏃']
+    const mindScore = currentResponse?.score_mind ?? null
+    const bodyScore = currentResponse?.score_body ?? null
+    const completed = action.action_id === 'submit_survey'
 
-    // 「送信する」を押したら完了表示
-    if (action.action_id === 'submit_survey') {
-      await slack.chat.update({
-        channel: container.channel_id,
-        ts: message.ts,
-        text: '回答完了',
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: `✅ *回答ありがとうございます！*\nこころ：${mindScore ? `${mindEmojis[mindScore - 1]} ${mindScore}` : '未回答'} ／ からだ：${bodyScore ? `${bodyEmojis[bodyScore - 1]} ${bodyScore}` : '未回答'}\n\nお疲れさまでした 🙏 来週もよろしくお願いします！`,
-            },
-          },
-        ],
-      })
-      return NextResponse.json({ ok: true })
-    }
-
-    // スコアボタンを押したらメッセージを更新（選択状態を表示）
     await slack.chat.update({
       channel: container.channel_id,
       ts: message.ts,
       text: '今週のチェックイン',
-      blocks: [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: 'こんにちは！今週のチェックインです 👋\n1〜5でタップしてください（1=低い、5=高い）',
-          },
-        },
-        {
-          type: 'section',
-          text: { type: 'mrkdwn', text: '*① こころの調子*' },
-        },
-        mindScore ? {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `選択中：${mindEmojis[mindScore - 1]} *${mindScore}*　（押し直して変更できます）`,
-          },
-        } : {
-          type: 'actions',
-          block_id: 'mind_score',
-          elements: [1, 2, 3, 4, 5].map((n) => ({
-            type: 'button',
-            text: { type: 'plain_text', text: `${mindEmojis[n - 1]} ${n}` },
-            value: String(n),
-            action_id: `mind_${n}`,
-          })),
-        },
-        {
-          type: 'section',
-          text: { type: 'mrkdwn', text: '*② からだの調子*' },
-        },
-        bodyScore ? {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `選択中：${bodyEmojis[bodyScore - 1]} *${bodyScore}*　（押し直して変更できます）`,
-          },
-        } : {
-          type: 'actions',
-          block_id: 'body_score',
-          elements: [1, 2, 3, 4, 5].map((n) => ({
-            type: 'button',
-            text: { type: 'plain_text', text: `${bodyEmojis[n - 1]} ${n}` },
-            value: String(n),
-            action_id: `body_${n}`,
-          })),
-        },
-        {
-          type: 'input' as const,
-          block_id: 'free_text',
-          optional: true,
-          label: { type: 'plain_text' as const, text: '③ 一言あれば（任意）' },
-          element: {
-            type: 'plain_text_input' as const,
-            action_id: 'free_text_input',
-            placeholder: { type: 'plain_text' as const, text: '気になることや、伝えたいことがあれば...' },
-            multiline: true,
-          },
-        },
-        {
-          type: 'actions' as const,
-          block_id: 'submit',
-          elements: [{
-            type: 'button' as const,
-            text: { type: 'plain_text' as const, text: '送信する' },
-            style: 'primary' as const,
-            action_id: 'submit_survey',
-            value: 'submit',
-          }],
-        },
-      ],
+      blocks: buildSurveyBlocks(mindScore, bodyScore, completed),
     })
   }
 
   return NextResponse.json({ ok: true })
 }
 
-async function notifyManagers(
-  userId: string,
-  slackUserId: string,
-  score: number
-) {
+async function notifyManagers(userId: string, slackUserId: string, score: number) {
   const { data: teamIds } = await supabaseAdmin
     .from('team_members')
     .select('team_id')
