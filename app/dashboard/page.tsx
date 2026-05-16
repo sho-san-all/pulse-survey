@@ -44,7 +44,25 @@ function alertMessage(alert: string) {
   return ''
 }
 
+import { Suspense } from 'react'
+
+// 元の `export default function Dashboard()` を `function DashboardContent()` に変更
+
+function DashboardContent() {
+  // 元のDashboard関数の中身をそのままここに
+}
+
 export default function Dashboard() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-gray-500 text-sm">読み込み中...</p>
+      </main>
+    }>
+      <DashboardContent />
+    </Suspense>
+  )
+}
   const searchParams = useSearchParams()
   const slackId = searchParams.get('slack_id')
 
