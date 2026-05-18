@@ -49,20 +49,6 @@ import { Suspense } from 'react'
 // 元の `export default function Dashboard()` を `function DashboardContent()` に変更
 
 function DashboardContent() {
-  // 元のDashboard関数の中身をそのままここに
-}
-
-export default function Dashboard() {
-  return (
-    <Suspense fallback={
-      <main className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <p className="text-gray-500 text-sm">読み込み中...</p>
-      </main>
-    }>
-      <DashboardContent />
-    </Suspense>
-  )
-}
   const searchParams = useSearchParams()
   const slackId = searchParams.get('slack_id')
 
@@ -140,9 +126,9 @@ export default function Dashboard() {
     // 直近4週のresponses取得
     const { data: responsesData } = await supabase
       .from('responses')
-      .select('user_id, mind_score, body_score, free_text, created_at')
+      .select('user_id, score_mind, score_body, free_text, answered_at')
       .in('user_id', memberIds)
-      .order('created_at', { ascending: false })
+      .order('answered_at', { ascending: false })
 
     // メンバーごとにデータ整形
     const formatted: Member[] = (usersData ?? []).map((u) => {
@@ -151,8 +137,8 @@ export default function Dashboard() {
         .slice(0, 4)
 
       const latest = userResponses[0]
-      const mind = latest?.mind_score ?? null
-      const body = latest?.body_score ?? null
+      const mind = latest?.score_mind ?? null
+      const body = latest?.score_body ?? null
 
       // アラート判定
       const alerts: string[] = []
@@ -160,35 +146,35 @@ export default function Dashboard() {
       // 低スコア継続（2週連続 ≤2）
       if (
         userResponses.length >= 2 &&
-        userResponses[0].mind_score <= 2 &&
-        userResponses[1].mind_score <= 2
+        userResponses[0].score_mind <= 2 &&
+        userResponses[1].score_mind <= 2
       ) alerts.push('低スコア継続')
 
       // 急落（先週比 -2以上）
       if (
         userResponses.length >= 2 &&
-        userResponses[0].mind_score !== null &&
-        userResponses[1].mind_score !== null &&
-        userResponses[1].mind_score - userResponses[0].mind_score >= 2
+        userResponses[0].score_mind !== null &&
+        userResponses[1].score_mind !== null &&
+        userResponses[1].score_mind - userResponses[0].score_mind >= 2
       ) alerts.push('急落')
 
       // 未回答（2週連続）
       if (
         userResponses.length >= 2 &&
-        userResponses[0].mind_score === null &&
-        userResponses[1].mind_score === null
+        userResponses[0].score_mind === null &&
+        userResponses[1].score_mind === null
       ) alerts.push('未回答')
 
       // スコア固定（4週連続同スコア）
       if (
         userResponses.length >= 4 &&
-        userResponses.every((r) => r.mind_score === userResponses[0].mind_score)
+        userResponses.every((r) => r.score_mind === userResponses[0].score_mind)
       ) alerts.push('スコア固定')
 
       const freeTexts = userResponses.map((r) => ({
-        date: new Date(r.created_at).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' }),
+        date: new Date(r.answered_at).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' }),
         text: r.free_text || '（記述なし）',
-        alert: r.mind_score <= 2,
+        alert: r.score_mind <= 2,
       }))
 
       return {
@@ -339,5 +325,17 @@ export default function Dashboard() {
         ))}
       </div>
     </main>
+  )
+}
+
+export default function Dashboard() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-gray-500 text-sm">読み込み中...</p>
+      </main>
+    }>
+      <DashboardContent />
+    </Suspense>
   )
 }

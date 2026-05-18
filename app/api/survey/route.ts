@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendSurveyDM } from '@/lib/slack'
 
 // 認証チェック（cronからのリクエストのみ許可）
@@ -8,7 +8,7 @@ function isAuthorized(req: NextRequest): boolean {
   return authHeader === `Bearer ${process.env.CRON_SECRET}`
 }
 
-export async function POST(req: NextRequest) {
+export async function GET(req: NextRequest) {
   if (!isAuthorized(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
