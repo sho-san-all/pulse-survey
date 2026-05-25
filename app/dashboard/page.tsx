@@ -97,11 +97,9 @@ function DashboardContent() {
   memberIds = (data ?? []).map((d: { user_id: string }) => d.user_id)
 
     } else if (viewerData.role === 'manager') {
-      // manager：manager_idが自分のメンバーのみ
+      // manager：配下の全階層メンバーを再帰取得
       const { data } = await supabase
-        .from('team_members')
-        .select('user_id')
-        .eq('manager_id', viewerData.id)
+        .rpc('get_all_subordinates', { root_manager_id: viewerData.id })
       memberIds = (data ?? []).map((d: { user_id: string }) => d.user_id)
 
     } else {

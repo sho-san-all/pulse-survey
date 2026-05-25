@@ -2,10 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sendSurveyDM } from '@/lib/slack'
 
-// 認証チェック（cronからのリクエストのみ許可）
+// 認証チェック（cronまたは手動トリガーからのリクエストのみ許可）
 function isAuthorized(req: NextRequest): boolean {
   const authHeader = req.headers.get('authorization')
-  return authHeader === `Bearer ${process.env.CRON_SECRET}`
+  const queryToken = req.nextUrl.searchParams.get('token')
+  return (
+    authHeader === `Bearer ${process.env.CRON_SECRET}` ||
+    authHeader === `Bearer ${process.env.MANUAL_TRIGGER_SECRET}` ||
+    queryToken === process.env.MANUAL_TRIGGER_SECRET
+  )
 }
 
 export async function GET(req: NextRequest) {
